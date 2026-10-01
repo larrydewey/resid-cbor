@@ -1,0 +1,170 @@
+// vectors.resid — the vectors from RFC 8949 Appendix A, read and written
+// the same way. Anything a CBOR implementation gets wrong shows up here.
+
+import "../src/cbor.resid";
+import "check.resid";
+
+// Encode `x` and compare the bytes with the vector.
+Bool enc_is(Str name, Str want, Int x) { return check_text(name, hex_text_of(to_cbor_hex(x)), want); }
+
+Bool dec_is_int(Str name, Str hex, Int want) {
+    Result(Int, SerialError) got = from_cbor_hex(hex);
+    if (Err(e) = got) { return check_text(name, error_text(e), f"{want}"); }
+    if (Ok(v) = got) { return check_text(name, f"{v}", f"{want}"); }
+    return false;
+}
+
+Bool dec_is_str(Str name, Str hex, Str want) {
+    Result(Str, SerialError) got = from_cbor_hex(hex);
+    if (Err(e) = got) { return check_text(name, error_text(e), want); }
+    if (Ok(v) = got) { return check_text(name, v, want); }
+    return false;
+}
+
+Bool dec_is_float(Str name, Str hex, Float want) {
+    Result(Float, SerialError) got = from_cbor_hex(hex);
+    if (Err(e) = got) { return check_text(name, error_text(e), f"{want}"); }
+    if (Ok(v) = got) { return check_text(name, f"{v}", f"{want}"); }
+    return false;
+}
+
+Bool dec_is_bytes(Str name, Str hex, List(Int) want) {
+    Result(ByteBuf, SerialError) got = from_cbor_hex(hex);
+    if (Err(e) = got) { return check_text(name, error_text(e), cbor_hex(want)); }
+    if (Ok(v) = got) { return check_text(name, cbor_hex(v.bytes), cbor_hex(want)); }
+    return false;
+}
+
+Bool dec_is_list(Str name, Str hex, List(Int) want) {
+    Result(List(Int), SerialError) got = from_cbor_hex(hex);
+    if (Err(e) = got) { return check_text(name, error_text(e), f"{want}"); }
+    if (Ok(v) = got) { return check_text(name, f"{v}", f"{want}"); }
+    return false;
+}
+
+Str inf_text(Result(Float, SerialError) r) {
+    if (Err(e) = r) { return error_text(e); }
+    if (Ok(v) = r) { return f"{v}"; }
+    return "unreachable";
+}
+
+Str int_err(Result(Int, SerialError) r) {
+    if (Err(e) = r) { return error_text(e); }
+    return "ok";
+}
+
+// ─── Encoding ────────────────────────────────────────────────────────
+
+Int main() {
+    // Unsigned integers, shortest form.
+    check_text("a/0", hex_text_of(to_cbor_hex(0)), "00");
+    check_text("a/1", hex_text_of(to_cbor_hex(1)), "01");
+    check_text("a/10", hex_text_of(to_cbor_hex(10)), "0a");
+    check_text("a/23", hex_text_of(to_cbor_hex(23)), "17");
+    check_text("a/24", hex_text_of(to_cbor_hex(24)), "1818");
+    check_text("a/25", hex_text_of(to_cbor_hex(25)), "1819");
+    check_text("a/100", hex_text_of(to_cbor_hex(100)), "1864");
+    check_text("a/1000", hex_text_of(to_cbor_hex(1000)), "1903e8");
+    check_text("a/1000000", hex_text_of(to_cbor_hex(1000000)), "1a000f4240");
+    check_text("a/1000000000000", hex_text_of(to_cbor_hex(1000000000000)), "1b000000e8d4a51000");
+    check_text("a/u64max", hex_text_of(to_cbor_hex(u64(18446744073709551615))), "1bffffffffffffffff");
+
+    // Negative integers: major type 1 carries -1 - v.
+    check_text("a/-1", hex_text_of(to_cbor_hex(0 - 1)), "20");
+    check_text("a/-10", hex_text_of(to_cbor_hex(0 - 10)), "29");
+    check_text("a/-100", hex_text_of(to_cbor_hex(0 - 100)), "3863");
+    check_text("a/-1000", hex_text_of(to_cbor_hex(0 - 1000)), "3903e7");
+
+    // Bignums: tag 2 and 3 around the magnitude's bytes.
+    check_text("a/bignum+", hex_text_of(to_cbor_hex(i128(18446744073709551616))), "c249010000000000000000");
+    check_text("a/bignum mt1", hex_text_of(to_cbor_hex(i128(0) - i128(18446744073709551617))), "c349010000000000000000");
+
+    // Text strings, with their UTF-8 bytes.
+    check_text("a/empty text", hex_text_of(to_cbor_hex("")), "60");
+    check_text("a/a", hex_text_of(to_cbor_hex("a")), "6161");
+    check_text("a/IETF", hex_text_of(to_cbor_hex("IETF")), "6449455446");
+    check_text("a/ü", hex_text_of(to_cbor_hex("ü")), "62c3bc");
+
+    // Byte strings.
+    check_text("a/bytes", hex_text_of(to_cbor_hex(byte_buf([1, 2, 3, 4]))), "4401020304");
+    List(Int) nobytes = [];
+    check_text("a/empty bytes", hex_text_of(to_cbor_hex(byte_buf(nobytes))), "40");
+
+    // Arrays and maps.
+    List(List(Int)) nested = [[1], [2, 3], [4, 5]];
+    check_text("a/nested", hex_text_of(to_cbor_hex(nested)), "838101820203820405");
+    List(Int) nil = [];
+    check_text("a/[]", hex_text_of(to_cbor_hex(nil)), "80");
+    check_text("a/[1,2,3]", hex_text_of(to_cbor_hex([1, 2, 3])), "83010203");
+
+    // Floats: the shortest width that reads back exactly.
+    check_text("a/0.0", hex_text_of(to_cbor_hex(0.0)), "f90000");
+    check_text("a/1.0", hex_text_of(to_cbor_hex(1.0)), "f93c00");
+    check_text("a/1.5", hex_text_of(to_cbor_hex(1.5)), "f93e00");
+    check_text("a/65504.0", hex_text_of(to_cbor_hex(65504.0)), "f97bff");
+    check_text("a/100000.0", hex_text_of(to_cbor_hex(100000.0)), "fa47c35000");
+    check_text("a/f32 max", hex_text_of(to_cbor_hex(340282346638528859811704183484516925440.0)), "fa7f7fffff");
+    check_text("a/1e300", hex_text_of(to_cbor_hex(1000000000000000052504760255204420248704468581108159154915854115511802457988908195786371375080447864043704443832883878176942523235360430575644792184786706982848387200926575803737830233794788090059368953234970799945081119038967640880074652742780142494579258788820056842838115669472196386865459400540160.0)), "fb7e37e43c8800759c");
+    check_text("a/smallest half", hex_text_of(to_cbor_hex(0.000000059604644775390625)), "f90001");
+    check_text("a/0.1", hex_text_of(to_cbor_hex(0.1000000000000000055511151231257827021181583404541015625)), "fb3fb999999999999a");
+    check_text("a/-4.1", hex_text_of(to_cbor_hex(0.0 - 4.0999999999999996447286321199499070644378662109375)), "fbc010666666666666");
+    check_text("a/-4.1 as f32", hex_text_of(to_cbor_hex((Float)f32(0.0 - 4.1))), "fac0833333");
+
+    // Booleans, null, options.
+    check_text("a/false", hex_text_of(to_cbor_hex(false)), "f4");
+    check_text("a/true", hex_text_of(to_cbor_hex(true)), "f5");
+    check_text("a/unit", hex_text_of(to_cbor_hex(unit())), "f6");
+    Option(Int) nothing = None;
+    check_text("a/none", hex_text_of(to_cbor_hex(nothing)), "f6");
+
+    // ─── Decoding the same vectors ────────────────────────────────────
+    dec_is_int("d/0", "00", 0);
+    dec_is_int("d/1", "01", 1);
+    dec_is_int("d/10", "0a", 10);
+    dec_is_int("d/23", "17", 23);
+    dec_is_int("d/24", "1818", 24);
+    dec_is_int("d/25", "1819", 25);
+    dec_is_int("d/100", "1864", 100);
+    dec_is_int("d/1000", "1903e8", 1000);
+    dec_is_int("d/1000000", "1a000f4240", 1000000);
+    dec_is_int("d/1000000000000", "1b000000e8d4a51000", 1000000000000);
+    check_text("d/u64max as Int", int_err(from_cbor_hex("1bffffffffffffffff")), "invalid value 18446744073709551615, expected an Int");
+    check_text("d/u64max as UInt", ubig_text(from_cbor_hex("1bffffffffffffffff")), "18446744073709551615");
+    dec_is_int("d/-1", "20", 0 - 1);
+    dec_is_int("d/-10", "29", 0 - 10);
+    dec_is_int("d/-100", "3863", 0 - 100);
+    dec_is_int("d/-1000", "3903e7", 0 - 1000);
+
+    dec_is_str("d/empty text", "60", "");
+    dec_is_str("d/a", "6161", "a");
+    dec_is_str("d/IETF", "6449455446", "IETF");
+    dec_is_str("d/ü", "62c3bc", "ü");
+
+    dec_is_bytes("d/bytes", "4401020304", [1, 2, 3, 4]);
+    dec_is_bytes("d/empty bytes", "40", nobytes);
+
+    dec_is_list("d/[]", "80", nobytes);
+    dec_is_list("d/[1,2,3]", "83010203", [1, 2, 3]);
+
+    dec_is_float("d/0.0", "f90000", 0.0);
+    dec_is_float("d/1.0", "f93c00", 1.0);
+    dec_is_float("d/1.5", "f93e00", 1.5);
+    dec_is_float("d/65504.0", "f97bff", 65504.0);
+    dec_is_float("d/100000.0", "fa47c35000", 100000.0);
+    dec_is_float("d/f32 max", "fa7f7fffff", 340282346638528859811704183484516925440.0);
+    dec_is_float("d/1e300", "fb7e37e43c8800759c", 1000000000000000052504760255204420248704468581108159154915854115511802457988908195786371375080447864043704443832883878176942523235360430575644792184786706982848387200926575803737830233794788090059368953234970799945081119038967640880074652742780142494579258788820056842838115669472196386865459400540160.0);
+    dec_is_float("d/smallest half", "f90001", 0.000000059604644775390625);
+    dec_is_float("d/0.1", "fb3fb999999999999a", 0.1000000000000000055511151231257827021181583404541015625);
+    dec_is_float("d/-4.1", "fbc010666666666666", 0.0 - 4.0999999999999996447286321199499070644378662109375);
+    dec_is_float("d/-4.1 f32", "fac0833333", 0.0 - 4.0999999046325684);
+    dec_is_float("d/double 1.0", "fb3ff0000000000000", 1.0);
+    dec_is_float("d/half 1.0", "f93c00", 1.0);
+    dec_is_float("d/subnormal half", "f90001", 0.000000059604644775390625);
+    check_text("d/-inf", inf_text(from_cbor_hex("f9fc00")), "-inf");
+
+    // A bignum reads back as the integer it stands for, both signs.
+    check_text("d/bignum+", big_text(from_cbor_hex("c249010000000000000000")), "18446744073709551616");
+    check_text("d/bignum-", big_text(from_cbor_hex("c349010000000000000000")), "-18446744073709551617");
+    check_text("d/u128+", ubig_text(from_cbor_hex("c249010000000000000000")), "18446744073709551616");
+    return 0;
+}

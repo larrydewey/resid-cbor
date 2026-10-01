@@ -1,0 +1,34 @@
+ok   eof/empty
+ok   eof/head byte
+ok   eof/head bytes
+ok   eof/string
+ok   eof/array
+ok   eof/struct
+ok   eof/break
+ok   type/int as string
+ok   type/string as int
+ok   type/bool as int
+ok   type/null as int
+ok   type/array as struct
+ok   type/struct as array
+ok   type/map as struct key
+ok   field/missing
+ok   field/duplicate
+ok   field/indefinite duplicate
+ok   variant/unknown
+ok   variant/not a variant
+ok   variant/empty map
+ok   variant/two entries
+ok   trailing/one byte
+ok   trailing/three bytes
+ok   utf8/truncated
+ok   utf8/continuation first
+ok   utf8/bad continuation
+ok   range/uint as Int
+ok   range/negative as uint
+ok   bignum/too long
+ok   encode/nan
+ok   encode/infinity
+ok   hex/odd length
+ok   hex/bad digit
+exit 0

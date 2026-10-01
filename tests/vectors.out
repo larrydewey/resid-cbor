@@ -1,0 +1,84 @@
+ok   a/0
+ok   a/1
+ok   a/10
+ok   a/23
+ok   a/24
+ok   a/25
+ok   a/100
+ok   a/1000
+ok   a/1000000
+ok   a/1000000000000
+ok   a/u64max
+ok   a/-1
+ok   a/-10
+ok   a/-100
+ok   a/-1000
+ok   a/bignum+
+ok   a/bignum mt1
+ok   a/empty text
+ok   a/a
+ok   a/IETF
+ok   a/ü
+ok   a/bytes
+ok   a/empty bytes
+ok   a/nested
+ok   a/[]
+ok   a/[1,2,3]
+ok   a/0.0
+ok   a/1.0
+ok   a/1.5
+ok   a/65504.0
+ok   a/100000.0
+ok   a/f32 max
+ok   a/1e300
+ok   a/smallest half
+ok   a/0.1
+ok   a/-4.1
+ok   a/-4.1 as f32
+ok   a/false
+ok   a/true
+ok   a/unit
+ok   a/none
+ok   d/0
+ok   d/1
+ok   d/10
+ok   d/23
+ok   d/24
+ok   d/25
+ok   d/100
+ok   d/1000
+ok   d/1000000
+ok   d/1000000000000
+ok   d/u64max as Int
+ok   d/u64max as UInt
+ok   d/-1
+ok   d/-10
+ok   d/-100
+ok   d/-1000
+ok   d/empty text
+ok   d/a
+ok   d/IETF
+ok   d/ü
+ok   d/bytes
+ok   d/empty bytes
+ok   d/[]
+ok   d/[1,2,3]
+ok   d/0.0
+ok   d/1.0
+ok   d/1.5
+ok   d/65504.0
+ok   d/100000.0
+ok   d/f32 max
+ok   d/1e300
+ok   d/smallest half
+ok   d/0.1
+ok   d/-4.1
+ok   d/-4.1 f32
+ok   d/double 1.0
+ok   d/half 1.0
+ok   d/subnormal half
+ok   d/-inf
+ok   d/bignum+
+ok   d/bignum-
+ok   d/u128+
+exit 0

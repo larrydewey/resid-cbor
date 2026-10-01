@@ -1,0 +1,166 @@
+// indefinite.resid — reading the forms CBOR allows but this package never
+// writes: indefinite-length arrays, maps, strings and byte strings, and the
+// untyped reads (read_peek, read_skip) that they feed.
+
+import "../src/cbor.resid";
+import "../../resid-serial/src/value.resid";
+import "check.resid";
+
+type Point = { Int x; Int y; };
+
+type Shape = Circle(Int) | Dot;
+
+List(Str) point_fields() { return ["x", "y"]; }
+
+List(Str) shape_variants() { return ["Circle", "Dot"]; }
+
+@needs(Decoder(F))
+Result(Parsed(Point, F), SerialError) dec_point(F s) {
+    F s1 = read_struct_begin(s, "Point", point_fields())?;
+    return dec_point_fields(s1, None, None);
+}
+Decode(Point, F) = dec_point;
+
+@needs(Decoder(F))
+Result(Parsed(Point, F), SerialError) dec_point_fields(F s, Option(Int) x, Option(Int) y) {
+    Parsed(FieldKey, F) k = read_field(s, point_fields())?;
+    FieldKey key = k.value;
+    return match key {
+        KnownField(i) => dec_point_slot(k.rest, i, x, y),
+        UnknownField(name) => dec_point_fields(skip_unknown(k.rest, name, point_fields(), false)?, x, y),
+        EndOfFields => finish_point(k.rest, x, y)
+    };
+}
+
+@needs(Decoder(F))
+Result(Parsed(Point, F), SerialError) dec_point_slot(F s, Int i, Option(Int) x, Option(Int) y) {
+    if (i == 0) {
+        Parsed(Option(Int), F) v = read_slot(s, x, "x")?;
+        return dec_point_fields(v.rest, v.value, y);
+    }
+    Parsed(Option(Int), F) v = read_slot(s, y, "y")?;
+    return dec_point_fields(v.rest, x, v.value);
+}
+
+Result(Parsed(Point, F), SerialError) finish_point(F s, Option(Int) x, Option(Int) y) {
+    Int xv = require(x, "x")?;
+    Int yv = require(y, "y")?;
+    return parsed(Point {.x = xv, .y = yv}, s);
+}
+
+@needs(Decoder(F))
+Result(Parsed(Shape, F), SerialError) dec_shape(F s) {
+    Parsed(Int, F) v = read_variant(s, "Shape", shape_variants())?;
+    if (v.value == 0) {
+        Parsed(Int, F) r = read_newtype_payload(v.rest, "Circle")?;
+        return parsed(Circle(r.value), r.rest);
+    }
+    return read_unit_payload(v.rest, Dot);
+}
+Decode(Shape, F) = dec_shape;
+
+// ─── Helpers ─────────────────────────────────────────────────────────
+
+Str list_text(Result(List(Int), SerialError) r) {
+    if (Err(e) = r) { return error_text(e); }
+    if (Ok(v) = r) { return f"{v}"; }
+    return "unreachable";
+}
+
+Str str_text(Result(Str, SerialError) r) {
+    if (Err(e) = r) { return error_text(e); }
+    if (Ok(v) = r) { return v; }
+    return "unreachable";
+}
+
+Str bytes_text(Result(ByteBuf, SerialError) r) {
+    if (Err(e) = r) { return error_text(e); }
+    if (Ok(v) = r) { return hex_bytes(v.bytes); }
+    return "unreachable";
+}
+
+Str nested_text(Result(List(List(Int)), SerialError) r) {
+    if (Err(e) = r) { return error_text(e); }
+    if (Ok(v) = r) { return f"{v}"; }
+    return "unreachable";
+}
+
+Str cbor_hex(Result(List(Int), SerialError) r) {
+    if (Err(e) = r) { return error_text(e); }
+    if (Ok(v) = r) { return hex_bytes(v); }
+    return "unreachable";
+}
+
+Str hex_bytes(List(Int) bs) { return cb_hex(bs); }
+
+Str fixed_text(Result(Str(8), SerialError) r) {
+    if (Err(e) = r) { return error_text(e); }
+    if (Ok(v) = r) { return f"{v}"; }
+    return "unreachable";
+}
+
+Str point_text(Result(Point, SerialError) r) {
+    if (Err(e) = r) { return error_text(e); }
+    if (Ok(v) = r) { return f"({v.x}, {v.y})"; }
+    return "unreachable";
+}
+
+Str shape_text(Result(Shape, SerialError) r) {
+    if (Err(e) = r) { return error_text(e); }
+    if (Ok(v) = r) { return match v { Circle(n) => f"Circle({n})", Dot => "Dot" }; }
+    return "unreachable";
+}
+
+Str map_text(Result(Map(Str, Int), SerialError) r) {
+    if (Err(e) = r) { return error_text(e); }
+    if (Ok(m) = r) { return f"{m.len()} entries"; }
+    return "unreachable";
+}
+
+Str value_text(Result(Value, SerialError) r) {
+    if (Err(e) = r) { return error_text(e); }
+    if (Ok(v) = r) { return show_value(v); }
+    return "unreachable";
+}
+
+Int main() {
+    // Indefinite arrays, definite and mixed.
+    check_text("array/indefinite", list_text(from_cbor_hex("9f0102ff")), "[1, 2]");
+    check_text("array/indefinite empty", list_text(from_cbor_hex("9fff")), "[]");
+    check_text("array/indefinite nested", nested_text(from_cbor_hex("9f9f0102ffff")), "[[1, 2]]");
+    check_text("array/definite", list_text(from_cbor_hex("83010203")), "[1, 2, 3]");
+
+    // Indefinite maps.
+    check_text("map/indefinite", map_text(from_cbor_hex("bf6161016162 02ff" == "" ? "" : "bf616101616202ff")), "2 entries");
+    check_text("map/indefinite empty", map_text(from_cbor_hex("bfff")), "0 entries");
+    check_text("map/indefinite in struct", point_text(from_cbor_hex("bf617801617902ff")), "(1, 2)");
+
+    // Indefinite strings and byte strings, in chunks.
+    check_text("str/chunks", str_text(from_cbor_hex("7f616161 62ff" == "" ? "" : "7f61616162ff")), "ab");
+    check_text("str/chunks utf8", str_text(from_cbor_hex("7f62c3bc6163ff")), "üc");
+    check_text("str/chunks empty chunk first", str_text(from_cbor_hex("7f606161ff")), "a");
+    check_text("str/indefinite empty", str_text(from_cbor_hex("7fff")), "");
+    check_text("bytes/chunks", bytes_text(from_cbor_hex("5f4201024103ff")), "010203");
+    check_text("bytes/chunks empty", bytes_text(from_cbor_hex("5fff")), "");
+
+    // An unknown field is skipped, whatever shape it holds.
+    check_text("struct/unknown field", point_text(from_cbor_hex("a3617801617a9f0102ff617902")), "(1, 2)");
+    check_text("struct/fields out of order", point_text(from_cbor_hex("a2617902617801")), "(1, 2)");
+
+    // Variants in an indefinite map.
+    check_text("variant/indefinite map", shape_text(from_cbor_hex("bf66436972636c6503ff")), "Circle(3)");
+    check_text("variant/definite map", shape_text(from_cbor_hex("a166436972636c6503")), "Circle(3)");
+    check_text("variant/text", shape_text(from_cbor_hex("63446f74")), "Dot");
+
+    // read_peek and read_skip: a Value walked over the same bytes.
+    check_text("value/nested", value_text(from_cbor_hex("9f01820203bf617805617906ffff")), "[1u, [2u, 3u], {\"x\": 5u, \"y\": 6u}]");
+    check_text("value/indefinite string", value_text(from_cbor_hex("7f61616162ff")), "\"ab\"");
+    check_text("value/bignum", value_text(from_cbor_hex("c249010000000000000000")), "18446744073709551616u128");
+
+    // A fixed-capacity string streams out of an indefinite one.
+    Str(8) small = "abc";
+    Result(Str(8), SerialError) got = from_cbor_hex("7f61616162ff");
+    check_text("fixed str/indefinite", fixed_text(got), "ab");
+
+    return 0;
+}

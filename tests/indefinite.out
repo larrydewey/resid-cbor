@@ -1,0 +1,23 @@
+ok   array/indefinite
+ok   array/indefinite empty
+ok   array/indefinite nested
+ok   array/definite
+ok   map/indefinite
+ok   map/indefinite empty
+ok   map/indefinite in struct
+ok   str/chunks
+ok   str/chunks utf8
+ok   str/chunks empty chunk first
+ok   str/indefinite empty
+ok   bytes/chunks
+ok   bytes/chunks empty
+ok   struct/unknown field
+ok   struct/fields out of order
+ok   variant/indefinite map
+ok   variant/definite map
+ok   variant/text
+ok   value/nested
+ok   value/indefinite string
+ok   value/bignum
+ok   fixed str/indefinite
+exit 0

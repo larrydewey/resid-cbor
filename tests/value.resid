@@ -1,0 +1,88 @@
+// value.resid — the format-neutral Value tree over CBOR. Decoding a Value
+// asks the format what comes next (read_peek) and skips what it does not
+// know (read_skip), so this is where the self-describing side of the
+// decoder is exercised.
+
+import "../src/cbor.resid";
+import "../../resid-serial/src/value.resid";
+import "check.resid";
+
+// Decode, show, and write it back out again: the same hex means the two
+// directions agree.
+Str trip(Str hex) {
+    Result(Value, SerialError) r = from_cbor_hex(hex);
+    if (Err(e) = r) { return "decode: " + error_text(e); }
+    if (Ok(v) = r) { return show_value(v); }
+    return "unreachable";
+}
+
+Str again(Str hex) {
+    Result(Value, SerialError) r = from_cbor_hex(hex);
+    if (Err(e) = r) { return "decode: " + error_text(e); }
+    if (Ok(v) = r) { return hex_text_of(to_cbor_hex(v)); }
+    return "unreachable";
+}
+
+// A Value built in code, encoded, decoded and encoded again: the same
+// bytes both ways. A struct and a map are the same thing on the wire, and
+// so are a variant and its payload, so what is compared is the encoding.
+Bool wire(Str name, Value want) {
+    Result(Str, SerialError) hex = to_cbor_hex(want);
+    if (Err(e) = hex) { return check_text(name, "encode: " + error_text(e), "ok"); }
+    return wire_again(name, hex, want);
+}
+
+Bool wire_again(Str name, Result(Str, SerialError) hex, Value want) {
+    if (Ok(text) = hex) {
+        Result(Value, SerialError) r = from_cbor_hex(text);
+        if (Err(e) = r) { return check_text(name, "decode: " + error_text(e), text); }
+        if (Ok(got) = r) { return check_text(name, hex_text_of(to_cbor_hex(got)), text); }
+    }
+    return check_text(name, "unreachable", show_value(want));
+}
+
+Int main() {
+    // What each kind reads as.
+    check_text("peek/int", trip("05"), "5u");
+    check_text("peek/negative", trip("20"), "-1");
+    check_text("peek/bool", trip("f5"), "true");
+    check_text("peek/null", trip("f6"), "None");
+    check_text("peek/float", trip("f93e00"), "1.5");
+    check_text("peek/string", trip("63616263"), "\"abc\"");
+    check_text("peek/bytes", trip("43010203"), "b[1, 2, 3]");
+    check_text("peek/array", trip("83010203"), "[1u, 2u, 3u]");
+    check_text("peek/map", trip("a2616101616202"), "{\"a\": 1u, \"b\": 2u}");
+    check_text("peek/option", trip("f6"), "None");
+    check_text("peek/i128", trip("c249010000000000000000"), "18446744073709551616u128");
+    check_text("peek/variant text", trip("63446f74"), "\"Dot\"");
+    check_text("peek/variant map", trip("a166436972636c6503"), "{\"Circle\": 3u}");
+    check_text("peek/tag other", trip("c074323031332d30332d32315432303a30343a30305a"), "2013-03-21T20:04:00Z");
+
+    // Written back out, canonical and equal.
+    check_text("again/array", again("83010203"), "83010203");
+    check_text("again/map", again("a2616101616202"), "a2616101616202");
+    check_text("again/indefinite becomes definite", again("9f0102ff"), "820102");
+    check_text("again/indefinite string", again("7f61616162ff"), "626162");
+    check_text("again/variant", again("a166436972636c6503"), "a166436972636c6503");
+    check_text("again/half float", again("f93e00"), "f93e00");
+    check_text("again/bignum", again("c249010000000000000000"), "c249010000000000000000");
+
+    // Values built here, through the encoder and back.
+    wire("value/bool", VBool(false));
+    wire("value/int", VInt(0 - 7));
+    wire("value/uint", VUInt(18446744073709551615));
+    wire("value/i128", VI128(i128(0) - i128(170141183460469231731687303715884105727)));
+    wire("value/u128", VU128(u128(340282366920938463463374607431768211455)));
+    wire("value/float", VFloat(0.1));
+    wire("value/str", VStr("héllo"));
+    wire("value/bytes", VBytes([0, 1, 255]));
+    wire("value/none", VNone);
+    wire("value/seq", VSeq([VInt(1), VStr("x"), VBool(true)]));
+    wire("value/map", VMap([ventry(VStr("k"), VSeq([]))]));
+    wire("value/struct", vstruct("Pt", [vfield("x", VInt(1)), vfield("y", VInt(2))]));
+    wire("value/unit variant", VUnitVariant(vtag("Shape", 0, "Dot")));
+    wire("value/variant", VVariant(VPayload {.tag = vtag("Shape", 0, "Circle"), .payload = VInt(3)}));
+    wire("value/nested", VSeq([VSome(VMap([ventry(VStr("k"), VUnitVariant(vtag("E", 0, "None")))]))]));
+
+    return 0;
+}

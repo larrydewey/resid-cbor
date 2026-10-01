@@ -1,0 +1,14 @@
+// smoke.resid — the format in one page: what each value becomes on the
+// wire, and that it reads back the same.
+import "../src/cbor.resid";
+
+Int main() {
+    Result(Str, SerialError) a = to_cbor_hex(0);
+    Result(Str, SerialError) b = to_cbor_hex(1000000);
+    Result(Str, SerialError) c = to_cbor_hex(-1);
+    Result(Str, SerialError) d = to_cbor_hex("hi");
+    Result(Str, SerialError) e = to_cbor_hex(1.5);
+    Result(Str, SerialError) f = to_cbor_hex([1, 2, 3]);
+    println(f"{a} {b} {c} {d} {e} {f}");
+    return 0;
+}

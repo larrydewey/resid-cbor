@@ -1,0 +1,152 @@
+// errors.resid — what the format reports when the bytes are wrong. Every
+// case is an error value with a kind and a path, never an abort.
+
+import "../src/cbor.resid";
+import "check.resid";
+
+type Point = { Int x; Int y; };
+
+type Shape = Circle(Int) | Dot;
+
+List(Str) point_fields() { return ["x", "y"]; }
+
+List(Str) shape_variants() { return ["Circle", "Dot"]; }
+
+@needs(Decoder(F))
+Result(Parsed(Point, F), SerialError) dec_point(F s) {
+    F s1 = read_struct_begin(s, "Point", point_fields())?;
+    return dec_point_fields(s1, None, None);
+}
+Decode(Point, F) = dec_point;
+
+@needs(Decoder(F))
+Result(Parsed(Point, F), SerialError) dec_point_fields(F s, Option(Int) x, Option(Int) y) {
+    Parsed(FieldKey, F) k = read_field(s, point_fields())?;
+    FieldKey key = k.value;
+    return match key {
+        KnownField(i) => dec_point_slot(k.rest, i, x, y),
+        UnknownField(name) => dec_point_fields(skip_unknown(k.rest, name, point_fields(), false)?, x, y),
+        EndOfFields => finish_point(k.rest, x, y)
+    };
+}
+
+@needs(Decoder(F))
+Result(Parsed(Point, F), SerialError) dec_point_slot(F s, Int i, Option(Int) x, Option(Int) y) {
+    if (i == 0) {
+        Parsed(Option(Int), F) v = read_slot(s, x, "x")?;
+        return dec_point_fields(v.rest, v.value, y);
+    }
+    Parsed(Option(Int), F) v = read_slot(s, y, "y")?;
+    return dec_point_fields(v.rest, x, v.value);
+}
+
+Result(Parsed(Point, F), SerialError) finish_point(F s, Option(Int) x, Option(Int) y) {
+    Int xv = require(x, "x")?;
+    Int yv = require(y, "y")?;
+    return parsed(Point {.x = xv, .y = yv}, s);
+}
+
+@needs(Decoder(F))
+Result(Parsed(Shape, F), SerialError) dec_shape(F s) {
+    Parsed(Int, F) v = read_variant(s, "Shape", shape_variants())?;
+    if (v.value == 0) {
+        Parsed(Int, F) r = read_newtype_payload(v.rest, "Circle")?;
+        return parsed(Circle(r.value), r.rest);
+    }
+    return read_unit_payload(v.rest, Dot);
+}
+Decode(Shape, F) = dec_shape;
+
+// ─── Helpers ─────────────────────────────────────────────────────────
+
+Str int_err(Str hex) {
+    Result(Int, SerialError) r = from_cbor_hex(hex);
+    return err_of(r);
+}
+
+Str str_err(Str hex) {
+    Result(Str, SerialError) r = from_cbor_hex(hex);
+    return err_of(r);
+}
+
+Str point_err(Str hex) {
+    Result(Point, SerialError) r = from_cbor_hex(hex);
+    return err_of(r);
+}
+
+Str shape_err(Str hex) {
+    Result(Shape, SerialError) r = from_cbor_hex(hex);
+    return err_of(r);
+}
+
+Str list_err(Str hex) {
+    Result(List(Int), SerialError) r = from_cbor_hex(hex);
+    return err_of(r);
+}
+
+Str hex_err(Str hex) {
+    Result(List(Int), SerialError) r = cb_unhex(hex);
+    return err_of(r);
+}
+
+Int main() {
+    // Truncated input, at every level.
+    check_text("eof/empty", int_err(""), "unexpected end of input, expected an integer");
+    check_text("eof/head byte", int_err("18"), "unexpected end of input, expected an integer");
+    check_text("eof/head bytes", int_err("1b00000000"), "unexpected end of input, expected an integer");
+    check_text("eof/string", str_err("6361"), "unexpected end of input, expected a string");
+    check_text("eof/array", list_err("8201"), "unexpected end of input, expected a sequence");
+    check_text("eof/struct", point_err("a2617801"), "unexpected end of input, expected a field name");
+    check_text("eof/break", list_err("9fff01"), "trailing input after the value: 1 byte(s)");
+
+    // The wrong type for the verb.
+    check_text("type/int as string", str_err("01"), "invalid type: expected a string, found an unsigned integer");
+    check_text("type/string as int", int_err("6161"), "invalid type: expected an integer, found a string");
+    check_text("type/bool as int", int_err("f5"), "invalid type: expected an integer, found a boolean");
+    check_text("type/null as int", int_err("f6"), "invalid type: expected an integer, found null");
+    check_text("type/array as struct", point_err("83010203"), "invalid type: expected a struct, found a sequence");
+    check_text("type/struct as array", list_err("a0"), "invalid type: expected a sequence, found a map");
+    check_text("type/map as struct key", point_err("a101"), "invalid type: expected a field name, found an unsigned integer");
+
+    // Struct fields.
+    check_text("field/missing", point_err("a1617801"), "missing field `y`");
+    check_text("field/duplicate", point_err("a3617801617902617802"), "duplicate field `x`");
+    check_text("field/indefinite duplicate", point_err("bf617801617802617903ff"), "duplicate field `x`");
+
+    // Enums.
+    check_text("variant/unknown", shape_err("634e6f50"), "unknown variant `NoP`, expected `Circle` or `Dot`");
+    check_text("variant/not a variant", shape_err("01"), "invalid type: expected an enum variant, found an unsigned integer");
+    check_text("variant/empty map", shape_err("a0"), "a variant map has no name");
+    check_text("variant/two entries", shape_err("a266436972636c650363446f7403"), "a variant map has more than one entry");
+
+    // Trailing input is rejected at the top level.
+    check_text("trailing/one byte", int_err("0101"), "trailing input after the value: 1 byte(s)");
+    check_text("trailing/three bytes", int_err("01f5f6"), "trailing input after the value: 2 byte(s)");
+
+    // Text that is not text.
+    check_text("utf8/truncated", str_err("62c3"), "unexpected end of input, expected a string");
+    check_text("utf8/continuation first", str_err("628080"), "invalid UTF-8 in a string: a continuation byte starts it");
+    check_text("utf8/bad continuation", str_err("62c341"), "invalid UTF-8 in a string");
+
+    // Numbers out of range for the type asked for.
+    check_text("range/uint as Int", int_err("1bffffffffffffffff"), "invalid value 18446744073709551615, expected an Int");
+    Result(UInt(64), SerialError) neg = from_cbor_hex("20");
+    check_text("range/negative as uint", err_of(neg), "invalid type: expected an unsigned integer, found a negative integer");
+
+    // Bignums.
+    Result(Int(128), SerialError) wide = from_cbor_hex("c251" + str_repeat("00", 17));
+    check_text("bignum/too long", err_of(wide), "invalid length 17, expected a bignum of at most 16 bytes");
+
+    // Encoding refuses what CBOR cannot spell.
+    Float zero = 0.0;
+    Float nan = zero / zero;
+    check_text("encode/nan", hex_text_of(to_cbor_hex(nan)), "invalid value nan, expected a finite CBOR float");
+    Float inf = 1.0 / zero;
+    check_text("encode/infinity", hex_text_of(to_cbor_hex(inf)), "invalid value inf, expected a finite CBOR float");
+
+    // The hex front end.
+    check_text("hex/odd length", hex_err("010"), "invalid hex digit in \"010\"");
+    check_text("hex/bad digit", hex_err("01zz"), "invalid hex digit in \"01zz\"");
+
+    return 0;
+}
